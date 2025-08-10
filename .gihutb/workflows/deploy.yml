@@ -1,0 +1,54 @@
+name: Build & Deploy Scraper
+
+on:
+  push:
+    paths:
+      - 'apps/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPO: earthdata-asset-resolver
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: fujiwara/lambroll@v1
+        with:
+          version: v1.1.0
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push Docker
+        id: build-push
+        run: |
+          IMAGE_TAG=sha-${{ github.sha }}
+          REPO_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}
+          IMAGE_URI=$REPO_URI:$IMAGE_TAG
+          docker build -t $IMAGE_URI apps
+          docker push $IMAGE_URI
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      - name: Deploy Lambda via lambroll
+        working-directory: infra/lambroll
+        env:
+          IMAGE_URI: ${{ env.IMAGE_URI }}
+          S3_BUCKET: fit-energy-platform
+        run: |
+          lambroll deploy
