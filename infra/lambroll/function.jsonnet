@@ -1,7 +1,7 @@
 {
   FunctionName: 'earthdata-asset-resolver',
   PackageType: 'Image',
-  Role: '086854724267.dkr.ecr.ap-northeast-1.amazonaws.com/earthdata-asset-resolver',
+  Role: 'arn:aws:iam::086854724267:role/earthdata-asset-resolver-role',
   Code: {
     ImageUri: '{{ must_env `IMAGE_URI` }}'
   },
