@@ -16,62 +16,41 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.filter.outputs.changes_json }}
-      any_changed: ${{ steps.filter.outputs.any_changed }}
+      matrix: ${{ steps.build-matrix.outputs.json }}
+      any_changed: ${{ steps.build-matrix.outputs.any }}
     steps:
       - uses: actions/checkout@v4
 
-      # 変更されたサービス配下を列挙（services/<group>/<name> 想定）
-      - name: Detect changed services
-        id: filter
+      - id: filter
         uses: dorny/paths-filter@v3
         with:
           list-files: json
           filters: |
             services:
               - added|modified: "services/**"
-      - name: Build matrix JSON
-        id: build-matrix
+
+      - id: build-matrix
         run: |
           files='${{ steps.filter.outputs.services_files }}'
-          # services/<group>/<name>/ 配下の最上位ディレクトリを unique 抽出
           echo "$files" | jq -r '.[]' | \
             awk -F/ '/^services\//{print $1"/"$2"/"$3}' | \
             sort -u | jq -R -s -c 'split("\n") - [""]' > matrix.json
-          echo "changes_json=$(cat matrix.json)" >> $GITHUB_OUTPUT
-          if [ "$(cat matrix.json)" != "[]" ]; then echo "any_changed=true" >> $GITHUB_OUTPUT; else echo "any_changed=false" >> $GITHUB_OUTPUT; fi
+          echo "json=$(cat matrix.json)" >> $GITHUB_OUTPUT
+          test "$(cat matrix.json)" != "[]" && echo "any=true" >> $GITHUB_OUTPUT || echo "any=false" >> $GITHUB_OUTPUT
 
   build-deploy:
     needs: detect-changes
     if: needs.detect-changes.outputs.any_changed == 'true'
-    runs-on: ubuntu-latest
+    # 🟢 ここを “job レベル uses” に変更
+    uses: ./.github/workflows/reusable-build-deploy.yml
     strategy:
       fail-fast: false
       matrix:
         service_dir: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    with:
+      service_dir: ${{ matrix.service_dir }}
+      # ecr_repo / lambroll_dir は渡さずに、呼ばれる側で導出させる
+    secrets: inherit
     concurrency:
       group: deploy-${{ matrix.service_dir }}
       cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-
-      # サービス名・ECR リポジトリ名を導出（例：services/group/name -> name）
-      - name: Derive service info
-        id: vars
-        run: |
-          SVC="${{ matrix.service_dir }}"
-          NAME="$(basename "$SVC")"
-          echo "NAME=$NAME" >> $GITHUB_OUTPUT
-          # リポジトリ命名規約：<prefix>-<name>
-          echo "ECR_REPO=earthdata-${NAME}" >> $GITHUB_OUTPUT
-          # Lambda 用 lambroll ディレクトリ（各サービスにある想定）
-          echo "LAMBROLL_DIR=$SVC/infra/lambroll" >> $GITHUB_OUTPUT
-
-      # 以降は再利用ワークフローに委譲
-      - name: Call reusable workflow
-        uses: ./.github/workflows/reusable-build-deploy.yml
-        with:
-          service_dir: ${{ matrix.service_dir }}
-          ecr_repo: ${{ steps.vars.outputs.ECR_REPO }}
-          lambroll_dir: ${{ steps.vars.outputs.LAMBROLL_DIR }}
-        secrets: inherit
