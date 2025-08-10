@@ -31,12 +31,14 @@ jobs:
 
       - id: build-matrix
         run: |
-          files='${{ steps.filter.outputs.services_files }}'
-          echo "$files" | jq -r '.[]' | \
-            awk -F/ '/^services\//{print $1"/"$2"/"$3}' | \
-            sort -u | jq -R -s -c 'split("\n") - [""]' > matrix.json
+          files='${{ steps.filter.outputs.svc_files }}'
+          # 変更ファイルからサービスのルート "services/<name>" を抽出
+          # 例: services/earthdata-asset-resolver/app/handler.py -> services/earthdata-asset-resolver
+          echo "$files" | jq -r '.[]' \
+            | awk -F/ '/^services\//{print $1"/"$2}' \
+            | sort -u | jq -R -s -c 'split("\n") - [""]' > matrix.json
           echo "json=$(cat matrix.json)" >> $GITHUB_OUTPUT
-          test "$(cat matrix.json)" != "[]" && echo "any=true" >> $GITHUB_OUTPUT || echo "any=false" >> $GITHUB_OUTPUT
+          [ "$(cat matrix.json)" != "[]" ] && echo "any=true"  >> $GITHUB_OUTPUT || echo "any=false" >> $GITHUB_OUTPUT
 
   build-deploy:
     needs: detect-changes

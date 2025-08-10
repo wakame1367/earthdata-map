@@ -43,12 +43,15 @@ jobs:
 
       - name: Derive names (when not given)
         id: derive
+        shell: bash
         run: |
-          SVC="${{ inputs.service_dir }}"
-          NAME="$(basename "$SVC")"
-          : "${ECR_REPO:=${{ inputs.ecr_repo }}}"
-          : "${LAMBROLL_DIR:=${{ inputs.lambroll_dir }}}"
-          [ -z "$ECR_REPO" ] && ECR_REPO="earthdata-${NAME}"
+          SVC="${{ inputs.service_dir }}"           # e.g., services/earthdata-asset-resolver
+          NAME="$(basename "$SVC" | tr '[:upper:]' '[:lower:]')"   # 念のため小文字化
+          # 英数字と . _ - 以外は - に置換（安全側）
+          SAFE_NAME="$(echo "$NAME" | sed -E 's/[^a-z0-9._-]+/-/g')"
+          ECR_REPO="${{ inputs.ecr_repo }}"
+          LAMBROLL_DIR="${{ inputs.lambroll_dir }}"
+          [ -z "$ECR_REPO" ] && ECR_REPO="earthdata-${SAFE_NAME}"
           [ -z "$LAMBROLL_DIR" ] && LAMBROLL_DIR="${SVC}/infra/lambroll"
           echo "ecr_repo=$ECR_REPO" >> $GITHUB_OUTPUT
           echo "lambroll_dir=$LAMBROLL_DIR" >> $GITHUB_OUTPUT
