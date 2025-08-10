@@ -1,75 +1,77 @@
-name: Build & Deploy Earthdata Resolver
+name: Monorepo Build & Deploy (changed services)
 
 on:
   push:
     paths:
-      - 'services/earthdata-asset-resolver/**'
-      - 'infra/lambroll/**'
-      - '.github/workflows/**'
+      - "services/**"
+      - "infra/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
-  id-token: write   # OIDCで必要
+  id-token: write
   contents: read
 
-env:
-  AWS_REGION: us-west-2
-  ECR_REPO: earthdata-asset-resolver
-
 jobs:
-  build_and_deploy:
+  detect-changes:
     runs-on: ubuntu-latest
-
+    outputs:
+      matrix: ${{ steps.filter.outputs.changes_json }}
+      any_changed: ${{ steps.filter.outputs.any_changed }}
     steps:
       - uses: actions/checkout@v4
 
-      # lambroll (v1系)
-      - uses: fujiwara/lambroll@v1
+      # 変更されたサービス配下を列挙（services/<group>/<name> 想定）
+      - name: Detect changed services
+        id: filter
+        uses: dorny/paths-filter@v3
         with:
-          version: v1.1.0
-
-      # GitHub OIDC でAWS認証
-      - name: Configure AWS (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      # ECRログイン
-      - name: Login to ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      # Buildx を使ってビルド
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Docker Build & Push (ECR)
-      - name: Build & Push to ECR
-        id: build-push
-        uses: docker/build-push-action@v6
-        with:
-          context: ./services/earthdata-asset-resolver
-          file: ./services/earthdata-asset-resolver/Dockerfile
-          push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}:sha-${{ github.sha }}
-          # Lambda/ECR での相性トラブルを避けるため provenanceは無効
-          provenance: false
-
-      # digest から完全な Image URI を生成（@sha256:... 形式）
-      - name: Compose IMAGE_URI with digest
+          list-files: json
+          filters: |
+            services:
+              - added|modified: "services/**"
+      - name: Build matrix JSON
+        id: build-matrix
         run: |
-          REG="${{ steps.login-ecr.outputs.registry }}"
-          REPO="${{ env.ECR_REPO }}"
-          DIGEST="${{ steps.build-push.outputs.digest }}"
-          echo "IMAGE_URI=${REG}/${REPO}@${DIGEST}" >> $GITHUB_ENV
-          echo "Image: ${REG}/${REPO}@${DIGEST}"
+          files='${{ steps.filter.outputs.services_files }}'
+          # services/<group>/<name>/ 配下の最上位ディレクトリを unique 抽出
+          echo "$files" | jq -r '.[]' | \
+            awk -F/ '/^services\//{print $1"/"$2"/"$3}' | \
+            sort -u | jq -R -s -c 'split("\n") - [""]' > matrix.json
+          echo "changes_json=$(cat matrix.json)" >> $GITHUB_OUTPUT
+          if [ "$(cat matrix.json)" != "[]" ]; then echo "any_changed=true" >> $GITHUB_OUTPUT; else echo "any_changed=false" >> $GITHUB_OUTPUT; fi
 
-      # lambroll deploy（function.json の Code.ImageUri は envテンプレで差し込み）
-      - name: Deploy Lambda via lambroll
-        working-directory: infra/lambroll
-        env:
-          IMAGE_URI: ${{ env.IMAGE_URI }}
-          EDL_SECRET_ID : ${{ secrets.EDL_SECRET_ID }}
+  build-deploy:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any_changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service_dir: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    concurrency:
+      group: deploy-${{ matrix.service_dir }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      # サービス名・ECR リポジトリ名を導出（例：services/group/name -> name）
+      - name: Derive service info
+        id: vars
         run: |
-          lambroll deploy
+          SVC="${{ matrix.service_dir }}"
+          NAME="$(basename "$SVC")"
+          echo "NAME=$NAME" >> $GITHUB_OUTPUT
+          # リポジトリ命名規約：<prefix>-<name>
+          echo "ECR_REPO=earthdata-${NAME}" >> $GITHUB_OUTPUT
+          # Lambda 用 lambroll ディレクトリ（各サービスにある想定）
+          echo "LAMBROLL_DIR=$SVC/infra/lambroll" >> $GITHUB_OUTPUT
+
+      # 以降は再利用ワークフローに委譲
+      - name: Call reusable workflow
+        uses: ./.github/workflows/reusable-build-deploy.yml
+        with:
+          service_dir: ${{ matrix.service_dir }}
+          ecr_repo: ${{ steps.vars.outputs.ECR_REPO }}
+          lambroll_dir: ${{ steps.vars.outputs.LAMBROLL_DIR }}
+        secrets: inherit
