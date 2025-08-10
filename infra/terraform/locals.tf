@@ -1,0 +1,4 @@
+
+locals {
+  project = "earthdata-map"
+}
