@@ -70,6 +70,6 @@ jobs:
         working-directory: infra/lambroll
         env:
           IMAGE_URI: ${{ env.IMAGE_URI }}
-          EDL_SECRET_ID : ${{ env.EDL_SECRET_ID }}
+          EDL_SECRET_ID : ${{ secrets.EDL_SECRET_ID }}
         run: |
           lambroll deploy
