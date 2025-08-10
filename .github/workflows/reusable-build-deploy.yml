@@ -5,11 +5,12 @@ on:
       service_dir:
         required: true
         type: string
+      # もし明示したい場合に限り上書きできるよう optional に
       ecr_repo:
-        required: true
+        required: false
         type: string
       lambroll_dir:
-        required: true
+        required: false
         type: string
     secrets:
       AWS_ROLE_ARN:
@@ -27,10 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: fujiwara/lambroll@v1
-        with:
-          version: v1.1.0
+        with: { version: v1.1.0 }
 
       - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -42,14 +41,25 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Derive names (when not given)
+        id: derive
+        run: |
+          SVC="${{ inputs.service_dir }}"
+          NAME="$(basename "$SVC")"
+          : "${ECR_REPO:=${{ inputs.ecr_repo }}}"
+          : "${LAMBROLL_DIR:=${{ inputs.lambroll_dir }}}"
+          [ -z "$ECR_REPO" ] && ECR_REPO="earthdata-${NAME}"
+          [ -z "$LAMBROLL_DIR" ] && LAMBROLL_DIR="${SVC}/infra/lambroll"
+          echo "ecr_repo=$ECR_REPO" >> $GITHUB_OUTPUT
+          echo "lambroll_dir=$LAMBROLL_DIR" >> $GITHUB_OUTPUT
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 任意：存在しなければ ECR を作る（Terraform管理なら不要）
-      - name: Ensure ECR repository exists
+      - name: Ensure ECR repository exists (optional)
         run: |
-          aws ecr describe-repositories --repository-names "${{ inputs.ecr_repo }}" >/dev/null 2>&1 \
-          || aws ecr create-repository --repository-name "${{ inputs.ecr_repo }}" >/dev/null
+          aws ecr describe-repositories --repository-names "${{ steps.derive.outputs.ecr_repo }}" >/dev/null 2>&1 \
+          || aws ecr create-repository --repository-name "${{ steps.derive.outputs.ecr_repo }}" >/dev/null
 
       - name: Build & Push to ECR
         id: build-push
@@ -58,22 +68,21 @@ jobs:
           context: ./${{ inputs.service_dir }}
           file: ./${{ inputs.service_dir }}/Dockerfile
           push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/${{ inputs.ecr_repo }}:sha-${{ github.sha }}
+          tags: ${{ steps.login-ecr.outputs.registry }}/${{ steps.derive.outputs.ecr_repo }}:sha-${{ github.sha }}
           provenance: false
 
       - name: Compose IMAGE_URI with digest
         run: |
           REG="${{ steps.login-ecr.outputs.registry }}"
-          REPO="${{ inputs.ecr_repo }}"
+          REPO="${{ steps.derive.outputs.ecr_repo }}"
           DIGEST="${{ steps.build-push.outputs.digest }}"
           echo "IMAGE_URI=${REG}/${REPO}@${DIGEST}" >> $GITHUB_ENV
           echo "Image: ${REG}/${REPO}@${DIGEST}"
 
       - name: Deploy Lambda via lambroll
-        if: ${{ hashFiles(format('{0}/function.json', inputs.lambroll_dir)) != '' }}
-        working-directory: ${{ inputs.lambroll_dir }}
+        if: ${{ hashFiles(format('{0}/function.json', steps.derive.outputs.lambroll_dir)) != '' }}
+        working-directory: ${{ steps.derive.outputs.lambroll_dir }}
         env:
           IMAGE_URI: ${{ env.IMAGE_URI }}
-          # 例）サービス共通 or サービス別のシークレットは secrets: inherit で受け取り
           EDL_SECRET_ID: ${{ secrets.EDL_SECRET_ID }}
         run: lambroll deploy
