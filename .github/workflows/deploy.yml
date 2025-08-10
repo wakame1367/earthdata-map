@@ -3,7 +3,7 @@ name: Build & Deploy Earthdata Resolver
 on:
   push:
     paths:
-      - 'services/earthdata-asset-resolver/**'
+      - 'services/**'
       - 'infra/lambroll/**'
       - '.github/workflows/**'
   workflow_dispatch:
