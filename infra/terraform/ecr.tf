@@ -1,5 +1,5 @@
 resource "aws_ecr_repository" "earthdata_asset_resolver" {
-  name     = "earthdata-asset-resolver"
+  name     = "earthdata-asset-resolver-v2"
   provider = aws.uswest2
   image_scanning_configuration {
     scan_on_push = true
