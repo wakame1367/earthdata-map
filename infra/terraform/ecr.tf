@@ -1,5 +1,4 @@
 module "ecr_resolver" {
-  source       = "terraform-aws-modules/ecr/aws"
-  name         = "earthdata-asset-resolver"
-  force_delete = true
+  source          = "terraform-aws-modules/ecr/aws"
+  repository_name = "earthdata-asset-resolver"
 }
