@@ -2,7 +2,7 @@ import json, os
 import boto3, requests
 from urllib.parse import urlparse
 
-SECRETS_ARN = os.environ["EDL_SECRET_ARN"]
+EDL_SECRET_ID = os.environ["EDL_SECRET_ID"]
 REGION = os.environ.get("AWS_REGION", "us-west-2")
 
 DAAC_S3CREDS = {
@@ -12,7 +12,7 @@ DAAC_S3CREDS = {
 sm = boto3.client("secretsmanager", region_name=REGION)
 
 def _get_edl_token():
-  sec = sm.get_secret_value(SecretId=SECRETS_ARN)
+  sec = sm.get_secret_value(SecretId=EDL_SECRET_ID)
   return json.loads(sec["SecretString"])["token"]  # 60日/同時2個まで。:contentReference[oaicite:11]{index=11}
 
 def _get_s3_creds(edl_token: str, provider_key: str):

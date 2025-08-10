@@ -8,5 +8,8 @@
   MemorySize: 512,
   Timeout: 300,
   Environment: {
+     Variables: {
+      EDL_SECRET_ID: '{{ must_env `EDL_SECRET_ID` }}'
+    }
   }
 }
