@@ -1,15 +1,14 @@
-data "aws_iam_policy_document" "assume_lambda" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "service"
-      identifiers = ["lambda.amazonaws.com"]
-    }
-  }
-}
 resource "aws_iam_role" "resolver" {
-  name               = "earthdata-asset-resolver-role"
-  assume_role_policy = data.aws_iam_policy_document.assume_lambda.json
+  name = "earthdata-asset-resolver-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect    = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" },
+      Action    = "sts:AssumeRole"
+    }]
+  })
 }
 resource "aws_iam_role_policy_attachment" "basic" {
   role       = aws_iam_role.resolver.name
