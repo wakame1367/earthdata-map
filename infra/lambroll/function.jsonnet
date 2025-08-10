@@ -1,15 +1,12 @@
 {
-  FunctionName: 'fit-energy-scraper',
+  FunctionName: 'earthdata-asset-resolver',
   PackageType: 'Image',
-  Role: 'arn:aws:iam::086854724267:role/fit-energy-platform-lambroll-lambda-role',
+  Role: '086854724267.dkr.ecr.ap-northeast-1.amazonaws.com/earthdata-asset-resolver',
   Code: {
     ImageUri: '{{ must_env `IMAGE_URI` }}'
   },
   MemorySize: 512,
   Timeout: 300,
   Environment: {
-    Variables: {
-      S3_BUCKET: '{{ must_env `S3_BUCKET` }}'
-    }
   }
 }
