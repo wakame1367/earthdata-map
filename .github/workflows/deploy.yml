@@ -31,7 +31,7 @@ jobs:
 
       - id: build-matrix
         run: |
-          files='${{ steps.filter.outputs.svc_files }}'
+          files='${{ steps.filter.outputs.services_files }}'
           # 変更ファイルからサービスのルート "services/<name>" を抽出
           # 例: services/earthdata-asset-resolver/app/handler.py -> services/earthdata-asset-resolver
           echo "$files" | jq -r '.[]' \
