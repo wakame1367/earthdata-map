@@ -1,4 +1,3 @@
-titiler.core
-titiler.extensions
+titiler.applicatio
 mangum
 # 使うなら: uvicorn  (ローカル動作確認用)
