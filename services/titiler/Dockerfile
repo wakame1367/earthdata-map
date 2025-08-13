@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # アプリ本体
-COPY app.py ${LAMBDA_TASK_ROOT}/
+COPY app/ ${LAMBDA_TASK_ROOT}/
 
 # Lambda ハンドラ指定（app.py の handler）
-CMD [ "app.handler" ]
+CMD [ "handler.handler" ]
