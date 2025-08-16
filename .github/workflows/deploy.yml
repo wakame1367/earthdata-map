@@ -28,22 +28,30 @@ jobs:
           filters: |
             services:
               - added|modified: "services/**"
+            infra_lambroll:
+              - added|modified: "infra/lambroll/**"
 
       - id: build-matrix
+        shell: bash
         run: |
-          files='${{ steps.filter.outputs.services_files }}'
-          # 変更ファイルからサービスのルート "services/<name>" を抽出
-          # 例: services/earthdata-asset-resolver/app/handler.py -> services/earthdata-asset-resolver
-          echo "$files" | jq -r '.[]' \
-            | awk -F/ '/^services\//{print $1"/"$2}' \
-            | sort -u | jq -R -s -c 'split("\n") - [""]' > matrix.json
+          svc_files='${{ steps.filter.outputs.services_files }}'
+          lmb_files='${{ steps.filter.outputs.infra_lambroll_files }}'
+
+          {
+            # services配下の変更 → services/<name>
+            echo "$svc_files" | jq -r '.[]' \
+              | awk -F/ '/^services\//{print $1"/"$2}'
+            # infra/lambroll配下の変更 → services/<name>
+            echo "$lmb_files" | jq -r '.[]' \
+              | awk -F/ '/^infra\/lambroll\//{print "services/"$3}'
+          } | sort -u | jq -R -s -c 'split("\n") - [""]' > matrix.json
+
           echo "json=$(cat matrix.json)" >> $GITHUB_OUTPUT
           [ "$(cat matrix.json)" != "[]" ] && echo "any=true"  >> $GITHUB_OUTPUT || echo "any=false" >> $GITHUB_OUTPUT
 
   build-deploy:
     needs: detect-changes
     if: needs.detect-changes.outputs.any_changed == 'true'
-    # 🟢 ここを “job レベル uses” に変更
     uses: ./.github/workflows/reusable-build-deploy.yml
     strategy:
       fail-fast: false
@@ -51,7 +59,6 @@ jobs:
         service_dir: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     with:
       service_dir: ${{ matrix.service_dir }}
-      # ecr_repo / lambroll_dir は渡さずに、呼ばれる側で導出させる
     secrets: inherit
     concurrency:
       group: deploy-${{ matrix.service_dir }}
