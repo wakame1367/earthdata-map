@@ -3,7 +3,7 @@
     AuthType: "AWS_IAM",
     Cors: {
       AllowOrigins: ["http://localhost:3000", "http://localhost:5173"],
-      AllowMethods: ["POST", "OPTIONS"],
+      AllowMethods: ["POST"],
       AllowHeaders: ["Content-Type", "Authorization", "X-Amz-Date", "X-Amz-Security-Token"],
       MaxAge: 86400
     }
