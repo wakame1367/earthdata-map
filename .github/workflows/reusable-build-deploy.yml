@@ -5,16 +5,20 @@ on:
       service_dir:
         required: true
         type: string
-      # もし明示したい場合に限り上書きできるよう optional に
+      # 任意で上書き可
       ecr_repo:
         required: false
         type: string
+      # 互換性維持: 指定されたらその下のfunction.jsonnetを使う
       lambroll_dir:
         required: false
         type: string
     secrets:
       AWS_ROLE_ARN:
         required: true
+      # lambroll用の追加シークレットがあればここに
+      EDL_SECRET_ID:
+        required: false
 
 permissions:
   id-token: write
@@ -41,20 +45,41 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Derive names (when not given)
+      - name: Derive names (ECR repo & lambroll function)
         id: derive
         shell: bash
         run: |
-          SVC="${{ inputs.service_dir }}"           # e.g., services/earthdata-asset-resolver
-          NAME="$(basename "$SVC" | tr '[:upper:]' '[:lower:]')"   # 念のため小文字化
-          # 英数字と . _ - 以外は - に置換（安全側）
-          SAFE_NAME="$(echo "$NAME" | sed -E 's/[^a-z0-9._-]+/-/g')"
+          SVC="${{ inputs.service_dir }}"                       # e.g., services/earthdata-asset-resolver
+          NAME="$(basename "$SVC")"                             # -> earthdata-asset-resolver
+          SAFE_NAME="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9/_-]+/-/g')"
+
+          # ECRの命名要件：先頭は英字、小文字/数字/ハイフン/アンダースコア/スラッシュのみ
+          if ! echo "$SAFE_NAME" | grep -Eq '^[a-z][a-z0-9/_-]*$'; then
+            echo "::error ::Invalid ECR repo name derived from service dir: $SAFE_NAME"
+            exit 1
+          fi
+
           ECR_REPO="${{ inputs.ecr_repo }}"
-          LAMBROLL_DIR="${{ inputs.lambroll_dir }}"
-          [ -z "$ECR_REPO" ] && ECR_REPO="earthdata-${SAFE_NAME}"
-          [ -z "$LAMBROLL_DIR" ] && LAMBROLL_DIR="${SVC}/infra/lambroll"
+          [ -z "$ECR_REPO" ] && ECR_REPO="$SAFE_NAME"
+
+          # lambrollのfunction.jsonnet（引数で渡す）
+          if [ -n "${{ inputs.lambroll_dir }}" ]; then
+            FUNC="${{ inputs.lambroll_dir }}/function.jsonnet"
+          else
+            FUNC="infra/lambroll/$SAFE_NAME/function.jsonnet"
+          fi
+
           echo "ecr_repo=$ECR_REPO" >> $GITHUB_OUTPUT
-          echo "lambroll_dir=$LAMBROLL_DIR" >> $GITHUB_OUTPUT
+          echo "lambroll_function=$FUNC" >> $GITHUB_OUTPUT
+
+      - name: Validate definitions
+        shell: bash
+        run: |
+          test -f "${{ steps.derive.outputs.lambroll_function }}" \
+            || { echo "::error ::function.jsonnet not found: ${{ steps.derive.outputs.lambroll_function }}"; exit 1; }
+          # Terraformで事前作成されていることを前提に存在チェックのみ（作成はしない）
+          aws ecr describe-repositories --repository-names "${{ steps.derive.outputs.ecr_repo }}" >/dev/null 2>&1 \
+            || { echo "::error ::ECR repository '${{ steps.derive.outputs.ecr_repo }}' not found. Ensure Terraform applied."; exit 1; }
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -77,10 +102,9 @@ jobs:
           echo "IMAGE_URI=${REG}/${REPO}@${DIGEST}" >> $GITHUB_ENV
           echo "Image: ${REG}/${REPO}@${DIGEST}"
 
-      - name: Deploy Lambda via lambroll
-        if: ${{ hashFiles(format('{0}/function.json', steps.derive.outputs.lambroll_dir)) != '' }}
-        working-directory: ${{ steps.derive.outputs.lambroll_dir }}
+      - name: Deploy Lambda via lambroll (function.jsonnet as arg)
         env:
           IMAGE_URI: ${{ env.IMAGE_URI }}
           EDL_SECRET_ID: ${{ secrets.EDL_SECRET_ID }}
-        run: lambroll deploy
+        run: |
+          lambroll deploy --function "${{ steps.derive.outputs.lambroll_function }}"
