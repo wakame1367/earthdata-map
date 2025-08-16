@@ -94,13 +94,17 @@ jobs:
           tags: ${{ steps.login-ecr.outputs.registry }}/${{ steps.derive.outputs.ecr_repo }}:sha-${{ github.sha }}
           provenance: false
 
-      - name: Compose IMAGE_URI with digest
+      - name: Compose IMAGE_URI (tag only)
         run: |
           REG="${{ steps.login-ecr.outputs.registry }}"
           REPO="${{ steps.derive.outputs.ecr_repo }}"
-          DIGEST="${{ steps.build-push.outputs.digest }}"
-          echo "IMAGE_URI=${REG}/${REPO}@${DIGEST}" >> $GITHUB_ENV
-          echo "Image: ${REG}/${REPO}@${DIGEST}"
+          echo "IMAGE_URI=${REG}/${REPO}:sha-${{ github.sha }}" >> $GITHUB_ENV
+          echo "Image(tag): ${REG}/${REPO}:sha-${{ github.sha }}"
+
+      - name: (optional) Ensure tag exists in ECR
+        run: |
+          aws ecr describe-images --repository-name "${{ steps.derive.outputs.ecr_repo }}" \
+            --image-ids imageTag="sha-${{ github.sha }}" --region "${{ env.AWS_REGION }}" >/dev/null
 
       - name: Deploy Lambda via lambroll (function.jsonnet as arg)
         env:
