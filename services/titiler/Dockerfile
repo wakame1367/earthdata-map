@@ -1,5 +1,6 @@
 # Lambda (Python 3.12 / AL2023) 公式ベース
 FROM public.ecr.aws/lambda/python:3.12
+RUN dnf install -y expat && dnf clean all && rm -rf /var/cache/dnf
 
 # 推奨: GDAL/Raster 読み込みの安定化/チューニング
 ENV GDAL_CACHEMAX=256 \
